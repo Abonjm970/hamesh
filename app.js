@@ -53,7 +53,8 @@ function cleanHtml(value) {
       if (child.tagName === 'FONT') {
         const span = doc.createElement('span');
         const size = child.getAttribute('size');
-        if (['2', '3', '4'].includes(size)) span.dataset.fontSize = size;
+        const fontSizeMap = { '1': '2', '2': '2', '3': '3', '4': '4', '5': '4', '6': '4', '7': '4' };
+        if (fontSizeMap[size]) span.dataset.fontSize = fontSizeMap[size];
         while (child.firstChild) span.append(child.firstChild);
         child.replaceWith(span);
         sanitize(span);
