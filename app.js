@@ -160,7 +160,7 @@ function saveNote() {
   captureEditors();
   state.meta.updatedAt = new Date().toISOString();
   const payload = { formatVersion: '1.0', app: 'hamesh', meta: state.meta, marginScale: state.marginScale, viewState: { activePage: state.activePage }, pdf: { data: bytesToBase64(state.pdfBytes), pageCount: state.pageCount }, pages: state.pages };
-  const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(payload)], { type: 'application/json;charset=utf-8' })); link.download = `${baseName(state.meta.originalFileName || state.meta.title)}.hamsh`; link.click();
+  const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(payload)], { type: 'application/octet-stream' })); link.download = `${baseName(state.meta.originalFileName || state.meta.title)}.hamsh`; link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000); showToast('تم حفظ المذكرة وتنزيلها.');
 }
 
