@@ -74,6 +74,21 @@ function cleanHtml(value) {
     });
   };
   sanitize(doc.body);
+
+  // Flatten nested spans with data-font-size: keep innermost, remove outer wrappers
+  const flattenFontSizeSpans = (node) => {
+    [...node.querySelectorAll('span[data-font-size]')].forEach((span) => {
+      let current = span;
+      while ((current = current.parentElement) && current.tagName === 'SPAN' && current.dataset.fontSize) {
+        // Move children of inner span to outer, then remove inner
+        while (span.firstChild) current.appendChild(span.firstChild);
+        span.remove();
+        break;
+      }
+    });
+  };
+  flattenFontSizeSpans(doc.body);
+
   return doc.body.innerHTML;
 }
 function captureEditors() {
