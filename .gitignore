@@ -1,0 +1,14 @@
+# ملفات المذكرات والوثائق الشخصية
+*.pdf
+*.hamsh
+
+# ملفات النظام والمحررات
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+AGENTS.md
+.agents
+skills-lock.json
+PRD.md
