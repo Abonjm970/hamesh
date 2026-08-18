@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#12333a" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <title>هامش — اقرأ واكتب بجانب الصفحة</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <section id="home-view" class="home-view" aria-labelledby="home-title">
+        <div class="home-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+        <p class="eyebrow">مفكرة قراءة محلية</p>
+        <h1 id="home-title">لكل صفحة<br /><em>هامشٌ</em> خاص.</h1>
+        <p class="home-copy">اقرأ ملف PDF واكتب ما يستحق أن يبقى، ثم احفظ المستند وملاحظاتك معًا في ملف واحد.</p>
+        <div class="home-actions">
+          <button id="new-note-button" class="button button-primary">مذكرة جديدة <span aria-hidden="true">←</span></button>
+          <button id="open-note-button" class="button button-secondary">فتح مذكرة محفوظة</button>
+        </div>
+        <p class="privacy-note">يبقى كل شيء على جهازك. لا حسابات ولا رفع للملفات.</p>
+        <input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden />
+        <input id="hamsh-input" type="file" accept="application/json,.hamsh" hidden />
+      </section>
+
+      <section id="workspace-view" class="workspace-view" hidden aria-label="مساحة عمل المذكرة">
+        <header class="workspace-header">
+          <button id="back-button" class="icon-button" aria-label="العودة إلى البداية" title="العودة إلى البداية">×</button>
+          <div class="document-name"><span class="document-dot"></span><span id="document-title">مذكرة</span></div>
+          <div class="header-actions">
+            <div class="scale-control" aria-label="حجم الهوامش">
+              <span>حجم الهامش</span>
+              <div role="group" aria-label="اختيار حجم الهامش">
+                <button data-scale="1" class="scale-button is-active">×1</button>
+                <button data-scale="2" class="scale-button">×2</button>
+                <button data-scale="3" class="scale-button">×3</button>
+              </div>
+            </div>
+            <button id="save-button" class="button button-save">حفظ <span aria-hidden="true">↓</span></button>
+          </div>
+        </header>
+
+        <section class="reader-shell">
+          <aside class="reader-rail" aria-label="التنقل بين الصفحات">
+            <button id="previous-page" class="page-nav" aria-label="الصفحة السابقة">→</button>
+            <div><strong id="page-number">1</strong><span>/</span><span id="page-count">1</span></div>
+            <button id="next-page" class="page-nav" aria-label="الصفحة التالية">←</button>
+          </aside>
+
+          <div id="loading-state" class="loading-state" hidden><span></span>يُحضّر الصفحات…</div>
+          <div id="workspace-error" class="workspace-error" role="alert" hidden></div>
+
+          <div id="reading-desk" class="reading-desk scale-1">
+            <section class="page-paper" aria-label="صفحة PDF"><canvas id="pdf-canvas"></canvas></section>
+            <section class="margin-panel side-panel" aria-labelledby="side-margin-title">
+              <div class="margin-label" id="side-margin-title">هامش الصفحة</div>
+              <div id="side-editor" class="note-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="الهامش الجانبي" data-placeholder="اكتب ملاحظتك هنا…"></div>
+            </section>
+            <section class="margin-panel bottom-panel" aria-labelledby="bottom-margin-title">
+              <div class="margin-label" id="bottom-margin-title">تدوين إضافي</div>
+              <div id="bottom-editor" class="note-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="الهامش السفلي" data-placeholder="فكرة، سؤال، أو اقتباس…"></div>
+            </section>
+          </div>
+        </section>
+
+        <footer class="format-bar" aria-label="تنسيق النص">
+          <span class="format-label">تنسيق</span>
+          <button class="format-button" data-command="bold" aria-label="نص غامق" title="نص غامق"><strong>غ</strong></button>
+          <button class="format-button" data-command="insertUnorderedList" aria-label="قائمة نقطية" title="قائمة نقطية">• ≡</button>
+          <button class="format-button" data-command="insertOrderedList" aria-label="قائمة مرقمة" title="قائمة مرقمة">١ ≡</button>
+          <span class="font-size-control" role="group" aria-label="حجم الخط">
+            <button class="format-button font-size-button" data-font-size="2" aria-label="خط صغير" title="خط صغير">ص</button>
+            <button class="format-button font-size-button is-active" data-font-size="3" aria-label="خط عادي" title="خط عادي">ص</button>
+            <button class="format-button font-size-button font-size-large" data-font-size="4" aria-label="خط كبير" title="خط كبير">ص</button>
+          </span>
+          <span class="format-hint">حدّد النص أو ضع المؤشر ثم اختر التنسيق</span>
+        </footer>
+      </section>
+    </main>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
