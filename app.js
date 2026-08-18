@@ -181,3 +181,20 @@ document.querySelectorAll('.font-size-button').forEach((button) => button.addEve
 $('#save-button').addEventListener('click', saveNote);
 $('#back-button').addEventListener('click', () => { if (confirm('العودة للبداية تُغلق المذكرة الحالية غير المحفوظة. هل تريد المتابعة؟')) showHome(); });
 window.addEventListener('beforeunload', (event) => { if (workspaceView.hidden === false) { event.preventDefault(); event.returnValue = ''; } });
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then((registration) => {
+        registration.addEventListener('updatefound', () => {
+          const newWorker = registration.installing;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              showToast('يتوفر تحديث جديد للتطبيق. أعد تحميل الصفحة لتفعيله.');
+            }
+          });
+        });
+      })
+      .catch((error) => console.error('Service Worker registration failed:', error));
+  });
+}

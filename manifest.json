@@ -1,0 +1,27 @@
+{
+  "name": "هامش — اقرأ واكتب بجانب الصفحة",
+  "short_name": "هامش",
+  "description": "تطبيق ويب عربي محلي بالكامل لقراءة ملفات PDF وتدوين الملاحظات المرتبطة بكل صفحة بدون خادم أو حسابات.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#e8e4d9",
+  "theme_color": "#12333a",
+  "dir": "rtl",
+  "lang": "ar",
+  "orientation": "any",
+  "categories": ["education", "utilities", "productivity"],
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
