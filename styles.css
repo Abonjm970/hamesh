@@ -28,7 +28,8 @@ h1 em { color: var(--coral); font-style: normal; }
 .home-copy { max-width: 550px; margin: 0; color: var(--muted); font-size: 16px; line-height: 2; }
 .home-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 32px; }
 .button { border: 1px solid transparent; padding: 13px 19px; border-radius: 2px; font-size: 13px; font-weight: 700; transition: transform .18s, background .18s; }
-.button:hover { transform: translateY(-2px); }.button-primary, .button-save { background: var(--ink); color: #fff; }.button-primary:hover, .button-save:hover { background: var(--ink-deep); }
+.button-save { background: var(--ink); color: #fff; }
+.button-primary:hover, .button-save:hover { background: var(--ink-deep); }
 .button-secondary { border-color: #aebbb8; color: var(--ink); background: transparent; }.button-secondary:hover { background: #f6f4ed; }
 .privacy-note { margin: 24px 0 0; color: var(--muted); font-size: 11px; }
 

@@ -180,6 +180,73 @@ function saveNote() {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000); showToast('تم حفظ المذكرة وتنزيلها.');
 }
 
+function htmlToMarkdown(html) {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const convertNode = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+    const childrenContent = Array.from(node.childNodes).map(convertNode).join('');
+    switch (node.tagName) {
+      case 'STRONG':
+      case 'B':
+        return `**${childrenContent}**`;
+      case 'P':
+        return `${childrenContent}\n\n`;
+      case 'BR':
+        return '\n';
+      case 'UL':
+      case 'OL':
+        return `${childrenContent}\n`;
+      case 'LI':
+        if (node.parentElement && node.parentElement.tagName === 'OL') {
+          const index = Array.from(node.parentElement.children).indexOf(node) + 1;
+          return `${index}. ${childrenContent.trim()}\n`;
+        }
+        return `- ${childrenContent.trim()}\n`;
+      case 'SPAN':
+        return childrenContent;
+      default:
+        return childrenContent;
+    }
+  };
+  return Array.from(doc.body.childNodes).map(convertNode).join('').trim();
+}
+
+function exportMarkdown() {
+  captureEditors();
+  const title = state.meta?.title || baseName(state.meta?.originalFileName || 'مذكرة');
+  const pagesWithNotes = state.pages.filter((page) => {
+    const side = htmlToMarkdown(page.sideMargin);
+    const bottom = htmlToMarkdown(page.bottomMargin);
+    return side.length > 0 || bottom.length > 0;
+  });
+
+  if (pagesWithNotes.length === 0) {
+    showToast('لا توجد هوامش مكتوبة للتصدير.');
+    return;
+  }
+
+  const lines = [`# ${title}`, ''];
+  pagesWithNotes.forEach((page) => {
+    lines.push(`## [${page.pageNumber}]`);
+    const side = htmlToMarkdown(page.sideMargin);
+    const bottom = htmlToMarkdown(page.bottomMargin);
+    if (side) lines.push(side);
+    if (bottom) lines.push(bottom);
+    lines.push('');
+  });
+  lines.push('#هامش ¦ abonjm970.github.io/hamesh');
+
+  const content = lines.join('\n');
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([content], { type: 'text/markdown;charset=utf-8' }));
+  link.download = `${title}.md`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  showToast('تم تصدير الهوامش إلى ملف Markdown.');
+}
+
 $('#new-note-button').addEventListener('click', () => pdfInput.click());
 $('#open-note-button').addEventListener('click', () => hamshInput.click());
 pdfInput.addEventListener('change', () => createNote(pdfInput.files[0]));
@@ -194,6 +261,7 @@ document.querySelectorAll('.font-size-button').forEach((button) => button.addEve
   document.querySelectorAll('.font-size-button').forEach((control) => control.classList.toggle('is-active', control === button));
   captureEditors();
 }));
+$('#export-button').addEventListener('click', exportMarkdown);
 $('#save-button').addEventListener('click', saveNote);
 $('#back-button').addEventListener('click', () => { if (confirm('العودة للبداية تُغلق المذكرة الحالية غير المحفوظة. هل تريد المتابعة؟')) showHome(); });
 window.addEventListener('beforeunload', (event) => { if (workspaceView.hidden === false) { event.preventDefault(); event.returnValue = ''; } });
