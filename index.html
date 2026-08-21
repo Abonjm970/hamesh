@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -11,24 +11,39 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="هامش" />
     <meta name="apple-mobile-web-app-status-bar-style" content="#12333a" />
-    <title>هامش — اقرأ واكتب بجانب الصفحة</title>
+    <title>هامش — مدير مذكرات مذكرات</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=El+Messiri:wght@700&family=IBM+Plex+Sans+Arabic:wght@500;700&family=Noto+Naskh+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main id="app">
       <section id="home-view" class="home-view" aria-labelledby="home-title">
-        <div class="home-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <p class="eyebrow">مفكرة قراءة محلية</p>
-        <h1 id="home-title">لكل صفحة<br /><em>هامشٌ</em> خاص.</h1>
-        <p class="home-copy">اقرأ ملف PDF واكتب ما يستحق أن يبقى، ثم احفظ المستند وملاحظاتك معًا في ملف واحد.</p>
-        <div class="home-actions">
-          <button id="new-note-button" class="button button-primary">مذكرة جديدة <span aria-hidden="true">←</span></button>
-          <button id="open-note-button" class="button button-secondary">فتح مذكرة محفوظة</button>
+        <button id="home-theme-toggle" class="theme-toggle" aria-label="تبديل الوضع الداكن" aria-pressed="false" type="button">🌙</button>
+
+        <div class="home-text">
+          <p class="eyebrow">مفكرة قراءة محلية</p>
+          <h1 id="home-title">لكل صفحة<br /><em>هامشٌ</em> خاص.</h1>
+          <p class="home-copy">اقرأ ملف PDF واكتب ما يستحق أن يبقى، ثم احفظ المستند وملاحظاتك معًا في ملف واحد.</p>
+          <div class="home-actions">
+            <button id="new-note-button" class="button button-primary">أنشئ مذكرة</button>
+            <button id="open-note-button" class="button button-secondary">افتح مذكرة</button>
+          </div>
+          <p class="privacy-note">يبقى كل شيء على جهازك. لا حسابات ولا رفع للملفات.</p>
         </div>
-        <p class="privacy-note">يبقى كل شيء على جهازك. لا حسابات ولا رفع للملفات.</p>
+
+        <div class="specimen-card" aria-hidden="true">
+          <div class="specimen-strokes">
+            <span></span>
+            <span></span>
+          </div>
+          <div class="specimen-page">
+            <span class="specimen-rule"></span>
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+
         <input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden />
         <input id="hamsh-input" type="file" accept="application/json,.hamsh" hidden />
       </section>
@@ -43,11 +58,13 @@
               <div role="group" aria-label="اختيار حجم الهامش">
                 <button data-scale="1" class="scale-button is-active">×1</button>
                 <button data-scale="2" class="scale-button">×2</button>
-                <button data-scale="3" class="scale-button">×3</button>
+                <button data-scale="4" class="scale-button">×4</button>
               </div>
             </div>
-            <button id="export-button" class="button button-save">تصدير الهوامش إلى .md</button>
+            <button id="export-pdf-button" class="button button-save" title="تصدير المستند مع الهوامش إلى ملف PDF">تصدير PDF</button>
+            <button id="export-button" class="button button-save" title="تصدير الهوامش المكتوبة إلى ملف Markdown">تصدير .md</button>
             <button id="save-button" class="button button-save">حفظ <span aria-hidden="true">↓</span></button>
+            <button id="workspace-theme-toggle" class="theme-toggle theme-toggle-ghost" aria-label="تبديل الوضع الداكن" aria-pressed="false" type="button">🌙</button>
           </div>
         </header>
 
@@ -64,6 +81,7 @@
           <div id="reading-desk" class="reading-desk scale-1">
             <section class="page-paper" aria-label="صفحة PDF"><canvas id="pdf-canvas"></canvas></section>
             <section class="margin-panel side-panel" aria-labelledby="side-margin-title">
+              <span id="side-divider" class="divider-ribbon" hidden></span>
               <div class="margin-label" id="side-margin-title">هامش الصفحة</div>
               <div id="side-editor" class="note-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="الهامش الجانبي" data-placeholder="اكتب ملاحظتك هنا…"></div>
             </section>
@@ -71,21 +89,23 @@
               <div class="margin-label" id="bottom-margin-title">تدوين إضافي</div>
               <div id="bottom-editor" class="note-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="الهامش السفلي" data-placeholder="فكرة، سؤال، أو اقتباس…"></div>
             </section>
+            <footer class="format-bar" aria-label="تنسيق النص">
+              <span class="format-label">تنسيق</span>
+              <button class="format-button" data-command="bold" aria-label="نص غامق" title="نص غامق"><strong>غ</strong></button>
+              <button class="format-button" data-command="insertUnorderedList" aria-label="قائمة نقطية" title="قائمة نقطية">• ≡</button>
+              <button class="format-button" data-command="insertOrderedList" aria-label="قائمة مرقمة" title="قائمة مرقمة">١ ≡</button>
+              <span class="font-size-control" role="group" aria-label="حجم الخط">
+                <button class="format-button font-size-button" data-font-size="2" aria-label="خط صغير" title="خط صغير">ص</button>
+                <button class="format-button font-size-button is-active" data-font-size="3" aria-label="خط عادي" title="خط عادي">ص</button>
+                <button class="format-button font-size-button font-size-large" data-font-size="4" aria-label="خط كبير" title="خط كبير">ص</button>
+              </span>
+              <button id="divider-button" class="format-button" aria-label="وضع فاصل" title="وضع فاصل على هذه الصفحة">فاصل</button>
+              <select id="divider-select" class="divider-select" aria-label="التنقل بين الفواصل" hidden></select>
+              <span class="format-hint">حدّد النص أو ضع المؤشر ثم اختر التنسيق</span>
+            </footer>
           </div>
         </section>
 
-        <footer class="format-bar" aria-label="تنسيق النص">
-          <span class="format-label">تنسيق</span>
-          <button class="format-button" data-command="bold" aria-label="نص غامق" title="نص غامق"><strong>غ</strong></button>
-          <button class="format-button" data-command="insertUnorderedList" aria-label="قائمة نقطية" title="قائمة نقطية">• ≡</button>
-          <button class="format-button" data-command="insertOrderedList" aria-label="قائمة مرقمة" title="قائمة مرقمة">١ ≡</button>
-          <span class="font-size-control" role="group" aria-label="حجم الخط">
-            <button class="format-button font-size-button" data-font-size="2" aria-label="خط صغير" title="خط صغير">ص</button>
-            <button class="format-button font-size-button is-active" data-font-size="3" aria-label="خط عادي" title="خط عادي">ص</button>
-            <button class="format-button font-size-button font-size-large" data-font-size="4" aria-label="خط كبير" title="خط كبير">ص</button>
-          </span>
-          <span class="format-hint">حدّد النص أو ضع المؤشر ثم اختر التنسيق</span>
-        </footer>
       </section>
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
