@@ -12,6 +12,10 @@ const sideEditor = $('#side-editor');
 const bottomEditor = $('#bottom-editor');
 let pdfjs;
 let toastTimer;
+let navigationBusy = false;
+let renderGeneration = 0;
+let renderingBusy = false;
+function setRenderingBusy(busy) { renderingBusy = busy; updateControls(); }
 
 async function getPdfJs() {
   if (!pdfjs) {
@@ -57,7 +61,12 @@ function cleanHtml(value) {
   const allowed = new Set(['P', 'BR', 'STRONG', 'B', 'UL', 'OL', 'LI', 'SPAN']);
   const sanitize = (node) => {
     [...node.childNodes].forEach((child) => {
-      if (child.nodeType === Node.TEXT_NODE) return;
+      if (child.nodeType === Node.TEXT_NODE) {
+        // Zero-width spaces are placeholders inserted when a font size is
+        // applied to a collapsed caret; they must not leak into saved notes.
+        if (child.textContent.includes('\u200B')) child.textContent = child.textContent.replace(/\u200B/g, '');
+        return;
+      }
       if (child.nodeType !== Node.ELEMENT_NODE) { child.remove(); return; }
       // Chrome creates DIV elements for new lines in contenteditable areas.
       // Store them as paragraphs so moving between pages cannot collapse lines.
@@ -93,19 +102,45 @@ function cleanHtml(value) {
   };
   sanitize(doc.body);
 
-  // Flatten nested spans with data-font-size: keep innermost, remove outer wrappers
-  const flattenFontSizeSpans = (node) => {
-    [...node.querySelectorAll('span[data-font-size]')].forEach((span) => {
-      let current = span;
-      while ((current = current.parentElement) && current.tagName === 'SPAN' && current.dataset.fontSize) {
-        // Move children of inner span to outer, then remove inner
-        while (span.firstChild) current.appendChild(span.firstChild);
-        span.remove();
-        break;
+  // Unwrap nested spans with data-font-size while preserving every change of
+  // size: adjacent segments may legitimately carry different sizes, so a
+  // boundary is kept wherever the nested span's size differs from its
+  // wrapper's; only redundant (same-size) nesting is merged. Invalid sizes
+  // are already stripped by sanitize(), leaving only '2', '3' or '4'.
+  const flattenFontSizeSpans = (root) => {
+    let nested;
+    while ((nested = root.querySelector('span[data-font-size] span[data-font-size]'))) {
+      const wrapper = nested.parentElement;
+      const parent = wrapper.parentNode;
+      if (nested.dataset.fontSize === wrapper.dataset.fontSize) {
+        while (nested.firstChild) wrapper.insertBefore(nested.firstChild, nested);
+        nested.remove();
+        continue;
       }
-    });
+      const size = wrapper.dataset.fontSize;
+      while (wrapper.firstChild) {
+        const child = wrapper.firstChild;
+        if (child.nodeType === Node.ELEMENT_NODE && child.tagName === 'SPAN' && child.dataset.fontSize && child.dataset.fontSize !== size) {
+          parent.insertBefore(child, wrapper);
+        } else {
+          const run = doc.createElement('span');
+          run.dataset.fontSize = size;
+          while (wrapper.firstChild && !(wrapper.firstChild.nodeType === Node.ELEMENT_NODE && wrapper.firstChild.tagName === 'SPAN' && wrapper.firstChild.dataset.fontSize && wrapper.firstChild.dataset.fontSize !== size)) {
+            run.append(wrapper.firstChild);
+          }
+          parent.insertBefore(run, wrapper);
+        }
+      }
+      wrapper.remove();
+    }
   };
   flattenFontSizeSpans(doc.body);
+
+  // Drop size spans left empty (e.g. a size applied to a caret where nothing
+  // was typed) so they cannot persist as invisible placeholders.
+  doc.body.querySelectorAll('span[data-font-size]').forEach((span) => {
+    if (!span.textContent && !span.querySelector('br')) span.remove();
+  });
 
   return doc.body.innerHTML;
 }
@@ -116,6 +151,8 @@ function captureEditors() {
   page.bottomMargin = cleanHtml(bottomEditor.innerHTML);
 }
 function fillEditors() {
+  // Any saved selection references nodes this rewrite is about to destroy.
+  savedSelection = null;
   const page = state.pages[state.activePage - 1];
   sideEditor.innerHTML = page?.sideMargin || '';
   bottomEditor.innerHTML = page?.bottomMargin || '';
@@ -123,8 +160,8 @@ function fillEditors() {
 function updateControls() {
   $('#page-number').textContent = state.activePage;
   $('#page-count').textContent = state.pageCount;
-  $('#previous-page').disabled = state.activePage === 1;
-  $('#next-page').disabled = state.activePage === state.pageCount;
+  $('#previous-page').disabled = navigationBusy || state.activePage === 1;
+  $('#next-page').disabled = navigationBusy || state.activePage === state.pageCount;
   document.querySelectorAll('.scale-button').forEach((button) => button.classList.toggle('is-active', Number(button.dataset.scale) === state.marginScale));
   $('#reading-desk').className = `reading-desk scale-${state.marginScale}`;
   const page = state.pages[state.activePage - 1];
@@ -138,27 +175,61 @@ function updateControls() {
   select.innerHTML = '<option value="" disabled selected>الفواصل</option>' + dividers.map((p, index) => `<option value="${p.pageNumber}">فاصل ${index + 1} — ص ${p.pageNumber}</option>`).join('');
 }
 
-async function renderPage() {
+const BASE_SCALE = 1.45;
+
+async function renderPage(targetPage) {
+  const generation = ++renderGeneration;
+  setRenderingBusy(true);
   setLoading(true); clearError();
   try {
-    const page = await state.pdfDocument.getPage(state.activePage);
-    const viewport = page.getViewport({ scale: 1.45 });
-    canvas.width = Math.floor(viewport.width);
-    canvas.height = Math.floor(viewport.height);
-    await page.render({ canvasContext: context, viewport }).promise;
+    const page = await state.pdfDocument.getPage(targetPage ?? state.activePage);
+    if (generation !== renderGeneration) return null;
+    const viewport = page.getViewport({ scale: BASE_SCALE });
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    canvas.width = Math.floor(viewport.width * dpr);
+    canvas.height = Math.floor(viewport.height * dpr);
+    canvas.style.maxWidth = '100%';
+    canvas.style.width = '';
+    canvas.style.height = '';
+    await page.render({ canvasContext: context, viewport, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
+    if (generation !== renderGeneration) return null;
     fillEditors(); updateControls();
-  } catch (error) { showError('تعذّر عرض هذه الصفحة. جرّب فتح الملف من جديد.'); console.error(error); }
-  finally { setLoading(false); }
+    return true;
+  } catch (error) {
+    if (generation !== renderGeneration) return null;
+    showError('تعذّر عرض هذه الصفحة. جرّب فتح الملف من جديد.');
+    fillEditors(); updateControls();
+    console.error(error); return false;
+  }
+  finally { setLoading(false); setRenderingBusy(false); }
+}
+
+async function navigateTo(targetPage) {
+  if (navigationBusy || !state.pdfDocument || !state.pages.length) return;
+  const target = Math.floor(Number(targetPage));
+  if (!Number.isInteger(target) || target < 1 || target > state.pageCount || target === state.activePage) return;
+  captureEditors();
+  navigationBusy = true;
+  updateControls();
+  try {
+    const rendered = await renderPage(target);
+    if (rendered === false) throw new Error('render-failed');
+    state.activePage = target;
+    fillEditors();
+  } catch (error) {
+    showToast('تعذّر عرض الصفحة المطلوبة.');
+  } finally {
+    navigationBusy = false;
+    updateControls();
+  }
 }
 
 async function loadPdf(bytes) {
   const lib = await getPdfJs();
-  state.pdfDocument?.destroy();
-  state.pdfDocument = await lib.getDocument({ data: bytes.slice(0) }).promise;
-  state.pageCount = state.pdfDocument.numPages;
+  return await lib.getDocument({ data: bytes.slice(0) }).promise;
 }
 function showWorkspace() { homeView.hidden = true; workspaceView.hidden = false; }
-function showHome() { workspaceView.hidden = true; homeView.hidden = false; }
+function showHome() { workspaceView.hidden = true; homeView.hidden = false; flushPendingSwReload(); }
 
 async function createNote(file) {
   if (!file) return;
@@ -166,7 +237,9 @@ async function createNote(file) {
   setLoading(true);
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    await loadPdf(bytes);
+    const pdfDocument = await loadPdf(bytes);
+    state.pdfDocument?.destroy();
+    state.pdfDocument = pdfDocument; state.pageCount = pdfDocument.numPages;
     state.pdfBytes = bytes;
     state.pages = defaultPages(state.pageCount);
     state.marginScale = 1; state.activePage = 1;
@@ -182,21 +255,32 @@ function validateHamsh(data) {
   if (!data || data.app !== 'hamesh' || data.formatVersion !== '1.0') throw new Error('صيغة ملف المذكرة غير مدعومة.');
   if (![1, 2, 3, 4].includes(data.marginScale) || !data.pdf?.data || !Number.isInteger(data.pdf?.pageCount) || !Array.isArray(data.pages)) throw new Error('بيانات ملف المذكرة غير مكتملة أو معطوبة.');
   if (data.pages.length !== data.pdf.pageCount || !data.pages.every((page, i) => page.pageNumber === i + 1)) throw new Error('صفحات المذكرة لا تطابق المستند الأصلي.');
+  if (typeof data.meta !== 'object' || data.meta === null || Array.isArray(data.meta)) throw new Error('بيانات المذكرة التعريفية معطوبة.');
 }
 async function openHamsh(file) {
   if (!file) return;
   setLoading(true);
   try {
-    const data = JSON.parse(await file.text()); validateHamsh(data);
-    const bytes = base64ToBytes(data.pdf.data); await loadPdf(bytes);
-    if (state.pageCount !== data.pdf.pageCount) throw new Error('عدد الصفحات لا يطابق ملف PDF المحفوظ.');
+    let data;
+    try { data = JSON.parse(await file.text()); }
+    catch (_) { throw new Error('الملف ليس مذكرة صالحة.'); }
+    validateHamsh(data);
+    let bytes;
+    try { bytes = base64ToBytes(data.pdf.data); }
+    catch (_) { throw new Error('بيانات PDF داخل المذكرة معطوبة.'); }
+    const pdfDocument = await loadPdf(bytes);
+    if (pdfDocument.numPages !== data.pdf.pageCount) throw new Error('عدد الصفحات لا يطابق ملف PDF المحفوظ.');
+    const pages = data.pages.map((page) => ({ ...page, sideMargin: cleanHtml(page.sideMargin), bottomMargin: cleanHtml(page.bottomMargin), divider: sanitizeDivider(page.divider) }));
+    const meta = { ...data.meta };
+    meta.title = typeof meta.title === 'string' && meta.title.trim() ? meta.title : baseName(typeof meta.originalFileName === 'string' && meta.originalFileName ? meta.originalFileName : file.name);
+    state.pdfDocument?.destroy();
+    state.pdfDocument = pdfDocument; state.pageCount = pdfDocument.numPages;
     state.pdfBytes = bytes; state.marginScale = data.marginScale;
-    state.pages = data.pages.map((page) => ({ ...page, sideMargin: cleanHtml(page.sideMargin), bottomMargin: cleanHtml(page.bottomMargin), divider: sanitizeDivider(page.divider) }));
+    state.pages = pages; state.meta = meta;
     state.activePage = Number.isInteger(data.viewState?.activePage) && data.viewState.activePage >= 1 && data.viewState.activePage <= state.pageCount ? data.viewState.activePage : 1;
-    state.meta = data.meta || {}; state.meta.title ||= baseName(state.meta.originalFileName || file.name);
     $('#document-title').textContent = state.meta.title;
     showWorkspace(); await renderPage();
-  } catch (error) { console.error(error); showToast(error.message || 'تعذّر فتح ملف المذكرة.'); }
+  } catch (error) { console.error(error); showToast(typeof error.message === 'string' && error.message ? error.message : 'تعذّر فتح ملف المذكرة.'); }
   finally { setLoading(false); hamshInput.value = ''; }
 }
 function saveNote() {
@@ -204,7 +288,7 @@ function saveNote() {
   state.meta.updatedAt = new Date().toISOString();
   const payload = { formatVersion: '1.0', app: 'hamesh', meta: state.meta, marginScale: state.marginScale, viewState: { activePage: state.activePage }, pdf: { data: bytesToBase64(state.pdfBytes), pageCount: state.pageCount }, pages: state.pages };
   const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(payload)], { type: 'application/octet-stream' })); link.download = `${baseName(state.meta.originalFileName || state.meta.title)}.hamsh`; link.click();
-  setTimeout(() => URL.revokeObjectURL(link.href), 1000); showToast('تم حفظ المذكرة وتنزيلها.');
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000); showToast('تم حفظ المذكرة وتنزيلها.'); flushPendingSwReload();
 }
 
 function htmlToMarkdown(html) {
@@ -279,6 +363,8 @@ const PDFLIB_URL = './pdf-lib.min.js';
 const EXPORT_LAYOUT = { sideWidth: 490, bottomHeight: 415, padTop: 38, padX: 23, padBottom: 20, linePitch: 32, lineOffset: 30, renderScale: 2, ptRatio: 0.75 };
 const EXPORT_COLORS = { paper: '#fffef9', rule: '#c6d1cc', divider: '#e6e6dc', ink: '#243d42', label: '#d66c55' };
 const EXPORT_FONT_SIZE = 21;
+const BRAND_URL = 'https://abonjm970.github.io/hamesh';
+const BRAND_COLORS = { paper: '#fffef9', petrol: '#12333a', coral: '#d66c55' };
 let pdfLibPromise;
 function loadPdfLib() {
   if (!pdfLibPromise) {
@@ -429,6 +515,63 @@ function drawDividerRibbon(ctx, x, y, colorHex) {
   ctx.fill();
 }
 
+function drawBrandLogo(ctx, x, y, size) {
+  const scale = size / 64;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = BRAND_COLORS.petrol;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, 64, 64, 14);
+  ctx.fill();
+  ctx.strokeStyle = BRAND_COLORS.coral;
+  ctx.lineWidth = 6;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(18, 45);
+  ctx.lineTo(35, 17);
+  ctx.moveTo(30, 48);
+  ctx.lineTo(47, 20);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function renderBrandingPage(width, height) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = BRAND_COLORS.paper;
+  ctx.fillRect(0, 0, width, height);
+
+  const logoSize = Math.round(height * 0.16);
+  const nameFontSize = Math.round(logoSize * 0.56);
+  const urlFontSize = 20;
+  const gapLogoName = 40;
+  const gapNameUrl = 26;
+  const nameHeight = Math.round(nameFontSize * 1.15);
+  const totalHeight = logoSize + gapLogoName + nameHeight + gapNameUrl + urlFontSize;
+  const top = Math.round((height - totalHeight) / 2);
+
+  drawBrandLogo(ctx, (width - logoSize) / 2, top, logoSize);
+
+  const nameTop = top + logoSize + gapLogoName + nameFontSize * 0.85;
+  ctx.fillStyle = BRAND_COLORS.petrol;
+  ctx.font = `700 ${nameFontSize}px "El Messiri"`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.direction = 'rtl';
+  ctx.fillText('هامش', width / 2, nameTop);
+
+  const urlBaseline = nameTop + gapNameUrl + urlFontSize * 0.8;
+  ctx.fillStyle = BRAND_COLORS.coral;
+  ctx.font = `500 ${urlFontSize}px "IBM Plex Sans Arabic"`;
+  ctx.direction = 'ltr';
+  ctx.fillText('abonjm970.github.io/hamesh', width / 2, urlBaseline);
+
+  return { canvas, linkRect: { x: (width - logoSize) / 2, y: top, w: logoSize, h: totalHeight } };
+}
+
 async function renderCompositePage(pdfPage, pageState) {
   const viewport = pdfPage.getViewport({ scale: EXPORT_LAYOUT.renderScale });
   const pageCanvas = document.createElement('canvas');
@@ -460,28 +603,72 @@ async function renderCompositePage(pdfPage, pageState) {
   return composite;
 }
 
+function setExportOverlay(active) {
+  let overlay = $('#export-overlay');
+  if (active) {
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'export-overlay';
+      overlay.setAttribute('aria-hidden', 'true');
+      document.body.append(overlay);
+    }
+  } else if (overlay) overlay.remove();
+}
+function setExportUiLocked(locked) {
+  ['#workspace-view', '#home-view'].forEach((selector) => {
+    const el = document.querySelector(selector);
+    if (el) el.inert = locked;
+  });
+}
 async function exportPdf() {
   if (!state.pdfDocument || !state.pages.length) return;
   captureEditors();
+  const pdfDocument = state.pdfDocument;
+  const pagesSnapshot = state.pages;
+  const snapshotPageCount = state.pageCount;
   setHeaderDisabled(true);
+  setExportOverlay(true);
+  setExportUiLocked(true);
   setLoading(true);
+  setLoadingMessage('جارٍ تصدير PDF…');
   try {
     await Promise.all([
       document.fonts.load(`400 ${EXPORT_FONT_SIZE}px "Noto Naskh Arabic"`),
       document.fonts.load(`700 ${EXPORT_FONT_SIZE}px "Noto Naskh Arabic"`),
       document.fonts.load('700 14px "IBM Plex Sans Arabic"'),
+      document.fonts.load('500 20px "IBM Plex Sans Arabic"').catch(() => {}),
+      document.fonts.load('700 64px "El Messiri"').catch(() => {}),
     ]);
     setLoadingMessage('جارٍ تجهيز مكتبة التصدير…');
-    const { PDFDocument } = await loadPdfLib();
+    const { PDFDocument, PDFName, PDFString } = await loadPdfLib();
     const out = await PDFDocument.create();
-    for (let pageNumber = 1; pageNumber <= state.pageCount; pageNumber++) {
-      setLoadingMessage(`جارٍ تصدير الصفحة ${pageNumber} من ${state.pageCount}…`);
-      const pdfPage = await state.pdfDocument.getPage(pageNumber);
-      const composite = await renderCompositePage(pdfPage, state.pages[pageNumber - 1]);
+    let lastCompositeWidth = 0;
+    let lastCompositeHeight = 0;
+    for (let pageNumber = 1; pageNumber <= snapshotPageCount; pageNumber++) {
+      setLoadingMessage(`جارٍ تصدير الصفحة ${pageNumber} من ${snapshotPageCount}…`);
+      const pdfPage = await pdfDocument.getPage(pageNumber);
+      const composite = await renderCompositePage(pdfPage, pagesSnapshot[pageNumber - 1]);
+      lastCompositeWidth = composite.width;
+      lastCompositeHeight = composite.height;
       const image = await out.embedPng(composite.toDataURL('image/png'));
       const page = out.addPage([composite.width * EXPORT_LAYOUT.ptRatio, composite.height * EXPORT_LAYOUT.ptRatio]);
       page.drawImage(image, { x: 0, y: 0, width: page.getWidth(), height: page.getHeight() });
     }
+    setLoadingMessage('جارٍ إضافة الصفحة الختامية…');
+    const brand = renderBrandingPage(lastCompositeWidth, lastCompositeHeight);
+    const brandImage = await out.embedPng(brand.canvas.toDataURL('image/png'));
+    const brandPage = out.addPage([brand.canvas.width * EXPORT_LAYOUT.ptRatio, brand.canvas.height * EXPORT_LAYOUT.ptRatio]);
+    brandPage.drawImage(brandImage, { x: 0, y: 0, width: brandPage.getWidth(), height: brandPage.getHeight() });
+    const pt = EXPORT_LAYOUT.ptRatio;
+    const rect = brand.linkRect;
+    const annotRef = out.context.register(out.context.obj({
+      Type: 'Annot',
+      Subtype: 'Link',
+      Rect: [rect.x * pt, (brand.canvas.height - rect.y - rect.h) * pt, (rect.x + rect.w) * pt, (brand.canvas.height - rect.y) * pt],
+      Border: [0, 0, 0],
+      A: { Type: 'Action', S: 'URI', URI: PDFString.of(BRAND_URL) },
+    }));
+    brandPage.node.set(PDFName.of('Annots'), out.context.obj([annotRef]));
     setLoadingMessage('جارٍ تجهيز الملف…');
     const bytes = await out.save();
     const title = state.meta?.title || baseName(state.meta?.originalFileName || 'مذكرة');
@@ -492,23 +679,145 @@ async function exportPdf() {
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     showToast('تم تصدير المستند مع الهوامش إلى ملف PDF.');
   } catch (error) { console.error(error); showToast(error.message || 'تعذّر تصدير ملف PDF.'); }
-  finally { setLoading(false); setLoadingMessage(''); setHeaderDisabled(false); }
+  finally { setLoading(false); setLoadingMessage(''); setHeaderDisabled(false); setExportOverlay(false); setExportUiLocked(false); }
 }
 
 $('#new-note-button').addEventListener('click', () => pdfInput.click());
 $('#open-note-button').addEventListener('click', () => hamshInput.click());
 pdfInput.addEventListener('change', () => createNote(pdfInput.files[0]));
 hamshInput.addEventListener('change', () => openHamsh(hamshInput.files[0]));
-$('#previous-page').addEventListener('click', async () => { if (state.activePage > 1) { captureEditors(); state.activePage--; await renderPage(); } });
-$('#next-page').addEventListener('click', async () => { if (state.activePage < state.pageCount) { captureEditors(); state.activePage++; await renderPage(); } });
+$('#previous-page').addEventListener('click', () => { void navigateTo(state.activePage - 1); });
+$('#next-page').addEventListener('click', () => { void navigateTo(state.activePage + 1); });
 document.querySelectorAll('.scale-button').forEach((button) => button.addEventListener('click', () => { state.marginScale = Number(button.dataset.scale); updateControls(); }));
-document.querySelectorAll('.format-button[data-command]').forEach((button) => button.addEventListener('mousedown', (event) => { event.preventDefault(); document.execCommand(button.dataset.command, false); captureEditors(); }));
-document.querySelectorAll('.font-size-button').forEach((button) => button.addEventListener('mousedown', (event) => {
-  event.preventDefault();
-  document.execCommand('fontSize', false, button.dataset.fontSize);
-  document.querySelectorAll('.font-size-button').forEach((control) => control.classList.toggle('is-active', control === button));
+let savedSelection = null;
+function storeEditorSelection() {
+  const selection = window.getSelection();
+  const node = selection.anchorNode;
+  if (!node || !selection.rangeCount) return;
+  const editor = sideEditor.contains(node) ? sideEditor : bottomEditor.contains(node) ? bottomEditor : null;
+  if (!editor) return;
+  savedSelection = { editor, range: selection.getRangeAt(0).cloneRange() };
+}
+function applyFormat(command, value) {
+  if (!savedSelection) return;
+  const { editor, range } = savedSelection;
+  editor.focus();
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  document.execCommand(command, false, value);
+  storeEditorSelection();
   captureEditors();
-}));
+}
+function applyFontSize(size) {
+  if (!savedSelection) return;
+  const { editor, range } = savedSelection;
+  editor.focus();
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  if (range.collapsed) {
+    // With a collapsed caret (e.g. a fresh empty line) there is nothing to wrap,
+    // so the size becomes a typing style: an empty span holding a zero-width
+    // placeholder, with the caret parked inside it.
+    let container = range.startContainer;
+    if (container.nodeType !== Node.ELEMENT_NODE) container = container.parentElement;
+    const current = container?.closest ? container.closest('span[data-font-size]') : null;
+    if (current && !current.textContent.replace(/\u200B/g, '')) {
+      // Caret sits in a fresh placeholder span (size chosen, nothing typed
+      // yet) — retarget it instead of nesting another span.
+      current.dataset.fontSize = size;
+    } else if (current) {
+      // Caret inside already-sized text: split the span at the caret so the
+      // surrounding text keeps its size while what is typed next gets the
+      // new size.
+      const parent = current.parentNode;
+      const next = current.nextSibling;
+      const rightRange = range.cloneRange();
+      rightRange.selectNodeContents(current);
+      rightRange.setStart(range.startContainer, range.startOffset);
+      const rightContent = rightRange.extractContents();
+      const keepLeft = !!current.textContent.replace(/\u200B/g, '') || !!current.querySelector('br');
+      const keepRight = !!rightContent.textContent.replace(/\u200B/g, '') || !!rightContent.querySelector('br');
+      const fragment = document.createDocumentFragment();
+      if (keepLeft) fragment.append(current);
+      const span = document.createElement('span');
+      span.dataset.fontSize = size;
+      span.append(document.createTextNode('\u200B'));
+      fragment.append(span);
+      if (keepRight) {
+        const right = document.createElement('span');
+        right.dataset.fontSize = current.dataset.fontSize;
+        right.append(rightContent);
+        fragment.append(right);
+      }
+      parent.insertBefore(fragment, next);
+      if (!keepLeft) current.remove();
+      range.setStart(span.firstChild, 1);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } else {
+      const span = document.createElement('span');
+      span.dataset.fontSize = size;
+      span.append(document.createTextNode('\u200B'));
+      range.insertNode(span);
+      range.setStart(span.firstChild, 1);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  } else {
+    const span = document.createElement('span');
+    span.dataset.fontSize = size;
+    span.append(range.extractContents());
+    // The newly chosen size wins: unwrap any size spans caught inside the
+    // selection. Partially selected spans are cloned into the fragment by
+    // extractContents, and the leftovers outside keep their own size.
+    span.querySelectorAll('span[data-font-size]').forEach((nested) => {
+      const parent = nested.parentNode;
+      while (nested.firstChild) parent.insertBefore(nested.firstChild, nested);
+      nested.remove();
+    });
+    range.insertNode(span);
+    range.selectNodeContents(span);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+  storeEditorSelection();
+  captureEditors();
+}
+// Reflect the font size at the caret in the toolbar instead of blindly
+// activating the last-clicked button.
+function updateFontSizeControls() {
+  const selection = window.getSelection();
+  let element = selection.anchorNode;
+  if (element && element.nodeType !== Node.ELEMENT_NODE) element = element.parentElement;
+  const editor = element ? (sideEditor.contains(element) ? sideEditor : bottomEditor.contains(element) ? bottomEditor : null) : null;
+  const sized = editor && element.closest ? element.closest('span[data-font-size]') : null;
+  const size = editor ? (sized && editor.contains(sized) ? sized.dataset.fontSize : '3') : null;
+  document.querySelectorAll('.font-size-button').forEach((control) => {
+    control.classList.toggle('is-active', control.dataset.fontSize === size);
+  });
+}
+function runFormatButton(button) {
+  if (button.dataset.command) { applyFormat(button.dataset.command, null); return; }
+  if (button.dataset.fontSize) {
+    applyFontSize(button.dataset.fontSize);
+    updateFontSizeControls();
+  }
+}
+document.querySelectorAll('.format-button[data-command], .format-button.font-size-button').forEach((button) => {
+  button.addEventListener('pointerdown', (event) => { event.preventDefault(); storeEditorSelection(); });
+  button.addEventListener('click', () => runFormatButton(button));
+  button.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    storeEditorSelection();
+    runFormatButton(button);
+  });
+});
+document.addEventListener('selectionchange', () => { storeEditorSelection(); updateFontSizeControls(); });
 $('#divider-button').addEventListener('click', () => {
   const page = state.pages[state.activePage - 1];
   if (!page) return;
@@ -521,12 +830,9 @@ $('#divider-button').addEventListener('click', () => {
   }
   updateControls();
 });
-$('#divider-select').addEventListener('change', async (event) => {
+$('#divider-select').addEventListener('change', (event) => {
   const target = Number(event.target.value);
-  if (!target || target === state.activePage) return;
-  captureEditors();
-  state.activePage = target;
-  await renderPage();
+  if (target && target !== state.activePage) void navigateTo(target);
 });
 $('#export-pdf-button').addEventListener('click', exportPdf);
 $('#export-button').addEventListener('click', exportMarkdown);
@@ -536,10 +842,18 @@ document.querySelectorAll('.theme-toggle').forEach((button) => button.addEventLi
 applyTheme();
 window.addEventListener('beforeunload', (event) => { if (workspaceView.hidden === false) { event.preventDefault(); event.returnValue = ''; } });
 
+let pendingSwReload = false;
+function flushPendingSwReload() {
+  if (!pendingSwReload || workspaceView.hidden === false) return;
+  pendingSwReload = false;
+  window.location.reload();
+}
+
 if ('serviceWorker' in navigator) {
   let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (reloading) return;
+    if (workspaceView.hidden === false) { pendingSwReload = true; return; }
     reloading = true;
     window.location.reload();
   });

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#12333a" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="apple-touch-icon" href="favicon.svg" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="manifest" href="manifest.json" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -61,9 +61,9 @@
                 <button data-scale="4" class="scale-button">×4</button>
               </div>
             </div>
-            <button id="export-pdf-button" class="button button-save" title="تصدير المستند مع الهوامش إلى ملف PDF">تصدير PDF</button>
-            <button id="export-button" class="button button-save" title="تصدير الهوامش المكتوبة إلى ملف Markdown">تصدير .md</button>
-            <button id="save-button" class="button button-save">حفظ <span aria-hidden="true">↓</span></button>
+            <button id="export-pdf-button" class="button button-save" aria-label="تصدير المستند مع الهوامش إلى ملف PDF" title="تصدير المستند مع الهوامش إلى ملف PDF"><span aria-hidden="true">⇩</span><span class="button-text">PDF</span></button>
+            <button id="export-button" class="button button-save" aria-label="تصدير الهوامش المكتوبة إلى ملف Markdown" title="تصدير الهوامش المكتوبة إلى ملف Markdown"><span aria-hidden="true">M↓</span><span class="button-text">.md</span></button>
+            <button id="save-button" class="button button-save" aria-label="حفظ المذكرة" title="حفظ المذكرة"><span aria-hidden="true">↓</span><span class="button-text">حفظ</span></button>
             <button id="workspace-theme-toggle" class="theme-toggle theme-toggle-ghost" aria-label="تبديل الوضع الداكن" aria-pressed="false" type="button">🌙</button>
           </div>
         </header>
@@ -99,7 +99,7 @@
                 <button class="format-button font-size-button is-active" data-font-size="3" aria-label="خط عادي" title="خط عادي">ص</button>
                 <button class="format-button font-size-button font-size-large" data-font-size="4" aria-label="خط كبير" title="خط كبير">ص</button>
               </span>
-              <button id="divider-button" class="format-button" aria-label="وضع فاصل" title="وضع فاصل على هذه الصفحة">فاصل</button>
+              <button id="divider-button" class="format-button" aria-label="وضع فاصل" title="وضع فاصل على هذه الصفحة"><span aria-hidden="true">⌇</span><span class="button-text">فاصل</span></button>
               <select id="divider-select" class="divider-select" aria-label="التنقل بين الفواصل" hidden></select>
               <span class="format-hint">حدّد النص أو ضع المؤشر ثم اختر التنسيق</span>
             </footer>

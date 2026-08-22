@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hamesh-cache-v4';
+const CACHE_NAME = 'hamesh-cache-v5';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -6,9 +6,7 @@ const ASSETS_TO_CACHE = [
   './app.js',
   './pdf-lib.min.js',
   './favicon.svg',
-  './manifest.json',
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs',
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs'
+  './manifest.json'
 ];
 
 // حدث التثبيت - تخزين الملفات الأساسية مسبقاً
@@ -70,7 +68,7 @@ self.addEventListener('fetch', (event) => {
         if (
           networkResponse &&
           networkResponse.status === 200 &&
-          (url.origin.includes('fonts.googleapis.com') || url.origin.includes('fonts.gstatic.com'))
+          (url.origin.includes('fonts.googleapis.com') || url.origin.includes('fonts.gstatic.com') || url.hostname === 'cdnjs.cloudflare.com')
         ) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
